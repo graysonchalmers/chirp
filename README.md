@@ -76,6 +76,10 @@ node bin/chirp.js build examples/basics.cx.js        # -> examples/out/
 node bin/chirp.js serve showcase/all.cx.js           # live player on http://127.0.0.1:4330
 ```
 
+In the player, **✎ annotate** (or `a`) lets you mark spans of time (and frequency bands) on the
+spectrogram, pin notes to moments and *send to Claude*. The feedback lists the bar and beat for songs
+and which layers are loudest in each span, with their source lines, so "check the feedback" is enough.
+
 ```js
 sfx("coin", { vol: 0.45 },
   tone({ wave: "square", freq: "B5", dur: 0.055, duty: 0.25 }),

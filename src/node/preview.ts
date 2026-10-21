@@ -8,6 +8,9 @@ import { SR } from "../core/util.ts";
 
 const W = 820, WAVE_H = 120, SPEC_H = 220, M = { l: 46, t: 30, r: 12, b: 26 };
 const FMIN = 40, FMAX = 16000;
+/** Where the plots sit in the preview PNG, so the viewer can turn a click into seconds and Hz. */
+export const PREVIEW_LAYOUT = { width: M.l + W + M.r, height: M.t + WAVE_H + 10 + SPEC_H + M.b,
+  plotX: M.l, plotW: W, waveY: M.t, waveH: WAVE_H, specY: M.t + WAVE_H + 10, specH: SPEC_H, fmin: FMIN, fmax: FMAX };
 const STOPS = [[0, 0, 4], [40, 11, 84], [101, 21, 110], [159, 42, 99], [212, 72, 66], [245, 125, 21], [250, 193, 39], [252, 255, 164]];
 
 function color(v: number): number[] {

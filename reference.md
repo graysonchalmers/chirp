@@ -99,4 +99,10 @@ Each track repeats its pattern until the song ends. Built-in drum instruments: `
 | `out/_preview/<name>.png` | Waveform + log-frequency spectrogram with time and Hz axes. |
 
 `chirp info file.cx.js <name> [--layer N]` prints levels, clipping, brightness and the pitch over time.
-`chirp serve file.cx.js [--port 4330] [--no-out]` runs the live player. `chirp list file.cx.js` lists everything.
+`chirp serve file.cx.js [--port 4330] [--no-out]` runs the live player. Its **annotate** mode (`a`)
+marks spans (drag on the waveform for all frequencies, on the spectrogram for a band) and notes
+(click a moment), colored fix / keep / check, with labels and a comment. **send to Claude** writes
+`<out>/_feedback/<sound>.json` (`spans`: `t0, t1, band, color, text, from, to, loudest`; `notes`:
+`t, f, text, at, loudest`; for songs `from`/`to`/`at` are `{ bar, beat, step }`, and `loudest` lists the
+layers by RMS in that window with their source location), `<sound>.annotated.png` and
+`<sound>.current.png`. `chirp list file.cx.js` lists everything.

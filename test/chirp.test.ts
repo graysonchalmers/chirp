@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -8,6 +8,7 @@ import { parsePattern } from "../src/core/music.ts";
 import { SR, freqOf, noteName } from "../src/core/util.ts";
 import { loadSource } from "../src/node/load.ts";
 import { writeOutputs } from "../src/node/output.ts";
+import { serve } from "../src/node/server.ts";
 
 const throwsMsg = (fn: () => unknown, re: RegExp) => assert.throws(fn, (e: Error) => re.test(e.message));
 const near = (a: number, b: number, tol: number) => assert.ok(Math.abs(a - b) <= tol, `${a} not within ${tol} of ${b}`);
@@ -102,6 +103,34 @@ bank("all", ["a", "b"], { gap: 0.05 })`);
     near(bank.sprite.b[0], lenA + 50, 2);
     assert.ok(readFileSync(join(dir, "_preview/a.png")).length > 1000);
   } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("serve: feedback spans come back with song position and the loudest layers", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "chirp-fb-"));
+  const file = join(dir, "a.cx.js");
+  // bar 1: only the bass plays; bar 2: only the lead (120 bpm, 4 steps per beat -> 2 s per bar)
+  writeFileSync(file, `inst("bass", { wave: "triangle" }); inst("lead", { wave: "square" })
+song("tune", { bpm: 120, bars: 2, loop: false },
+  track("bass", "C2 - - - - - - - - - - - - - - - | . . . . . . . . . . . . . . . ."),
+  track("lead", ". . . . . . . . . . . . . . . . | C5 - - - - - - - - - - - - - - -"))`);
+  const s = await serve(file, { port: 0, out: join(dir, "out"), log: () => {} });
+  const post = (body: unknown) => fetch(s.url + "api/feedback", { method: "POST", body: JSON.stringify(body) });
+  try {
+    const r = await post({ name: "tune", comment: "c", spans: [{ t0: 2.2, t1: 2.8, f0: 400, f1: 2000, color: "#ff3df0", text: "too harsh" }],
+      notes: [{ t: 0.5, text: "bass ok" }, { t: "x", text: "bad" }] });
+    assert.equal(r.status, 200);
+    const fb = JSON.parse(readFileSync(join(dir, "out", "_feedback", "tune.json"), "utf8"));
+    assert.deepEqual(fb.spans[0].from, { bar: 2, beat: 1, step: 2 });
+    assert.deepEqual(fb.spans[0].band, [400, 2000]);
+    assert.equal(fb.spans[0].loudest[0].label, 'track("lead")');
+    assert.equal(fb.notes.length, 1, "invalid notes are dropped");
+    assert.equal(fb.notes[0].loudest[0].label, 'track("bass")');
+    assert.ok(existsSync(join(dir, "out", "_feedback", "tune.current.png")));
+    assert.equal((await post({ name: "nope" })).status, 400);
+  } finally {
+    s.close();
     rmSync(dir, { recursive: true, force: true });
   }
 });

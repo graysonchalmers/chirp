@@ -9,7 +9,8 @@ import { type ChirpError, wrap } from "../core/errors.ts";
 import type { Project } from "../core/project.ts";
 import { loadProject } from "./load.ts";
 import { writeOutputs } from "./output.ts";
-import { previewPng } from "./preview.ts";
+import { PREVIEW_LAYOUT, previewPng } from "./preview.ts";
+import { FeedbackError, writeFeedback } from "./feedback.ts";
 
 export interface ServeOptions {
   port?: number;
@@ -19,7 +20,7 @@ export interface ServeOptions {
 
 interface ErrInfo { message: string; loc?: string }
 interface SoundInfo { name: string; kind: string; part: boolean; dur?: number; loop?: boolean; layers?: string[]; info?: string; changed: boolean; error?: ErrInfo }
-interface State { version: number; file: string; time: string; ms: number; error?: ErrInfo; sounds: SoundInfo[]; errors: ErrInfo[] }
+interface State { version: number; file: string; time: string; ms: number; error?: ErrInfo; sounds: SoundInfo[]; errors: ErrInfo[]; layout: typeof PREVIEW_LAYOUT }
 
 const viewerDir = join(dirname(fileURLToPath(import.meta.url)), "..", "viewer");
 const errInfo = (e: ChirpError): ErrInfo => ({ message: e.message, loc: e.loc });
@@ -37,14 +38,14 @@ export function serve(file: string, opts: ServeOptions = {}): Promise<{ url: str
   const log = opts.log ?? ((l: string) => console.log(l));
   const clients = new Set<ServerResponse>();
   let project: Project | undefined;
-  let state: State = { version: 0, file: basename(abs), time: "", ms: 0, sounds: [], errors: [] };
+  let state: State = { version: 0, file: basename(abs), time: "", ms: 0, sounds: [], errors: [], layout: PREVIEW_LAYOUT };
   const last = new Map<string, string>();
   let watched = new Set<string>();
   let timer: NodeJS.Timeout | undefined;
 
   const rebuild = () => {
     const t0 = performance.now();
-    const next: State = { version: state.version + 1, file: basename(abs), time: new Date().toLocaleTimeString(), ms: 0, sounds: [], errors: [] };
+    const next: State = { version: state.version + 1, file: basename(abs), time: new Date().toLocaleTimeString(), ms: 0, sounds: [], errors: [], layout: PREVIEW_LAYOUT };
     try { project = loadProject(abs); } catch (e) { project = undefined; next.error = errInfo(wrap(e)); }
     if (project) {
       for (const name of project.order) {
@@ -99,6 +100,23 @@ export function serve(file: string, opts: ServeOptions = {}): Promise<{ url: str
         res.write(`event: build\ndata: ${JSON.stringify(state)}\n\n`);
         clients.add(res);
         req.on("close", () => clients.delete(res));
+      } else if (url.pathname === "/api/feedback" && req.method === "POST") {
+        // Spans and notes from the player's annotate mode, written to <out>/_feedback/.
+        const chunks: Buffer[] = [];
+        let size = 0;
+        req.on("data", (d: Buffer) => { size += d.length; if (size > 32 << 20) req.destroy(); else chunks.push(d); });
+        req.on("end", () => {
+          const reply = (code: number, j: unknown) => { res.writeHead(code, { "content-type": "application/json" }); res.end(JSON.stringify(j)); };
+          if (!project) return reply(409, { error: "the sound file does not build right now" });
+          try {
+            const r = writeFeedback(project, out ?? join(dirname(abs), "out"), JSON.parse(Buffer.concat(chunks).toString("utf8")));
+            log(`[chirp] feedback: ${r.summary} -> ${r.files.find((f) => f.endsWith(".json"))}`);
+            reply(200, { ok: true, ...r });
+          } catch (e) {
+            reply(e instanceof FeedbackError || e instanceof SyntaxError ? 400 : 500, { error: (e as Error).message });
+          }
+        });
+        return;
       } else if ((url.pathname === "/api/wav" || url.pathname === "/api/png") && project) {
         const r = project.render(name, 1, layer);
         if (url.pathname === "/api/wav") {

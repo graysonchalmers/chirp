@@ -22,6 +22,12 @@ read. Needs Node ≥ 22.18 and `npm install` once in this skill's directory.
    envelopes, filter sweeps, noise color and timing.
 4. Let the user listen: start `CHIRP serve sounds.cx.js` in the background and give them the URL.
    It rebuilds on save and plays the edited sound; layers can be soloed. Ask what they hear and iterate.
+   **Feedback**: the player's annotate mode (`a`) lets the user drag spans over the waveform or the
+   spectrogram (a band) and pin notes to moments, then send them. When they say "check the feedback",
+   read `out/_feedback/<sound>.json`: each span has `t0`/`t1` in seconds, `band` in Hz (or null),
+   `color` (magenta = fix, cyan = keep, yellow = check), their `text`, the song position (`from`/`to`:
+   bar, beat, step) and `loudest`: the layers playing there with their source `loc` and level. Start
+   with the loudest layer's line. Comments persist between sends: check `time`.
 
 Errors name file:line:col and suggest fixes. One broken sound doesn't stop the others.
 

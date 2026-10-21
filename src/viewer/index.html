@@ -36,11 +36,25 @@
   #layers button { background: var(--panel); color: var(--text); border: 1px solid var(--line); border-radius: 6px; padding: 4px 9px; cursor: pointer; font: 11px var(--mono); }
   #layers button:hover { border-color: var(--accent); }
   #err { display: none; margin-bottom: 12px; padding: 12px 14px; border-radius: 8px; background: #2b1720; border: 1px solid var(--bad); color: #ffd3d8; font: 12px/1.5 var(--mono); white-space: pre-wrap; max-width: 900px; }
+  #wrap { position: relative; max-width: 900px; }
+  #ann { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+  body.annotating #ann { pointer-events: auto; cursor: crosshair; }
+  header button, #annot button { background: var(--panel2); color: var(--text); border: 1px solid var(--line); border-radius: 6px; padding: 3px 10px; cursor: pointer; font: 12px var(--mono); }
+  header button.on, #annot button.on { color: var(--accent); border-color: var(--accent); }
+  #annot { display: none; max-width: 900px; margin: 10px 0; padding: 10px 12px; background: var(--panel); border-radius: 8px; }
+  body.annotating #annot { display: block; }
+  #annot .r { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; margin-bottom: 8px; }
+  #annot .chip { width: 22px; height: 22px; padding: 0; }
+  #annot textarea { width: 100%; min-height: 48px; background: var(--bg); color: var(--text); border: 1px solid var(--line); border-radius: 6px; font: 12px var(--mono); padding: 6px; }
+  #items { list-style: none; margin: 0 0 8px; padding: 0; font: 11px var(--mono); max-height: 130px; overflow: auto; }
+  #items li { display: flex; gap: 6px; padding: 2px 0; } #items b { color: #ffb454; } #items span { flex: 1; } #items a { color: var(--bad); cursor: pointer; }
+  #fbstatus { font: 11px var(--mono); color: var(--dim); margin-left: 8px; }
   #unlock { position: fixed; inset: 0; background: #000a; display: grid; place-items: center; font: 600 16px var(--mono); color: var(--accent); cursor: pointer; }
 </style>
 </head>
 <body>
 <header><span class="logo">CHIRP</span><span class="file" id="file"></span><span class="grow"></span>
+  <button id="annotbtn" title="mark spans and pin notes for Claude (a)">✎ annotate</button>
   <label><input type="checkbox" id="auto" checked> play on save</label>
   <label><input type="checkbox" id="loop"> loop</label>
   <span class="pill" id="status">connecting</span></header>
@@ -48,7 +62,17 @@
 <main>
   <div id="err"></div>
   <div id="bar"><button class="big" id="play">▶ play</button><button class="big" id="stop">■ stop</button><span class="file" id="title"></span></div>
-  <img id="prev" alt="">
+  <div id="wrap"><img id="prev" alt=""><canvas id="ann"></canvas></div>
+  <div id="annot">
+    <div class="r"><b style="font:600 11px var(--mono);color:var(--dim)">FEEDBACK FOR CLAUDE</b>
+      <button id="t-span" class="on" title="drag over the plots (s): on the spectrogram it keeps the band">span</button>
+      <button id="t-note" title="click a moment (n)">note</button><button id="t-erase" title="click a span or note (e)">erase</button>
+      <span id="colors" class="r" style="margin:0"></span><button id="t-clear">clear</button></div>
+    <div style="font:10px var(--mono);color:var(--dim);margin-bottom:6px">magenta = fix this, cyan = keep this, yellow = check this. Drag on the spectrogram to mark a band, on the waveform for all frequencies.</div>
+    <ol id="items"></ol>
+    <textarea id="comment" placeholder="overall comment…"></textarea>
+    <div class="r" style="margin:6px 0 0"><button id="send" class="on">send to Claude</button><span id="fbstatus"></span></div>
+  </div>
   <div id="info"></div>
   <div class="sect">layers (click to solo)</div>
   <div id="layers"></div>
