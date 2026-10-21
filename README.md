@@ -31,6 +31,21 @@ exactly the video frames where its dying letter flickers off**:
 
 ![neon buzz dropping out on frames 3-4, 9 and 15-16](docs/media/neon.png)
 
+### LAST CUP (isometric): a 32 s room in sync with a pixel-art loop
+
+[![LAST CUP isometric: waveform and spectrogram](docs/media/last_cup_iso.png)](docs/media/last_cup_iso.ogg)
+
+▶ **[Listen (OGG)](docs/media/last_cup_iso.ogg)** · source: [`last_cup_iso.cx.js`](showcase/last_cup_iso.cx.js) ·
+picture: the isometric scene in [pxl](https://github.com/uilianks/pxl/tree/main/showcase)
+
+Scored for the pxl isometric cafe, whose animation loops every 1.6 s: the mix is exactly 20 loops.
+Rain muffled by the window on the left, the city's sub-drone and a siren that never comes closer,
+the CAFE sign's hum (dark on the same frames its F dies), the bar's kick-plate strip and the bulb,
+the CRT's flyback whine, the robot's tired fan, a relay that clicks, servos as he lifts and lowers the
+cup twice (in sync with the sip in the pixel art), a clink, oil dripping, the hooded sleeper's breathing,
+a half-dead espresso machine, and a slow D minor theme. A second 10 s mix, `last_cup_iso_3d`, follows
+the kiln version's clip instead.
+
 ### Forest Kit: the sounds of the vex platformer pack
 
 [![Forest Kit sound bank](docs/media/forest_sfx_bank.png)](docs/media/forest_sfx_bank.mp4)
