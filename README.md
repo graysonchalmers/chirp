@@ -9,7 +9,8 @@ Built for AI agents (it ships as a Claude Code skill). An agent can't hear, so e
 writes a **waveform + spectrogram preview** and `chirp info` prints **levels, clipping and the pitch
 over time**: the agent reads its sounds the way it reads its code.
 
-Sibling of [**vex**](https://github.com/uilianks/vex) (vector art) and inspired by
+Part of a family with [**vex**](https://github.com/uilianks/vex) (vector art, skeletal animation) and
+[**kiln**](https://github.com/uilianks/kiln) (low-poly and voxel 3D). Inspired by
 [**claude-pxl**](https://github.com/crsolver/claude-pxl) (pixel art), with the same architecture:
 sandboxed source files, lazy cached builds, errors with exact locations, and a live viewer.
 
