@@ -3,15 +3,21 @@
 import { ChirpError, didYouMean, wrap } from "./errors.ts";
 import { applyFx, checkFx, fxTail } from "./fx.ts";
 import {
-  type BankDef, type Fx, type InstDef, type InstMake, type Item, type Play, type SoundDef, type SoundOpts, type Step,
+  type BankDef, type Fx, type InstDef, type InstMake, type Item, type Play, type SampleData, type SoundDef, type SoundOpts, type Step,
   type Track, type Voice, type VoiceOpts, isAt, isFx, isPlay, isTrack, isVoice,
 } from "./model.ts";
-import { DRUMS, parsePattern } from "./music.ts";
+import { type MidiTrack, midiKey } from "./midi.ts";
+import { DRUMS, chord, parsePattern, scale } from "./music.ts";
 import { type Mod, type Stereo, checkEnv, renderVoice, stereo, voiceLength } from "./synth.ts";
 import { SR, freqOf, globRe, hash, rng } from "./util.ts";
 
-const VOICE_KEYS = ["wave", "freq", "to", "curve", "slide", "dur", "env", "vol", "pan", "duty", "arp", "vibrato", "tremolo", "filter", "color", "seed"];
-const WAVES = ["sine", "square", "saw", "triangle"];
+const VOICE_KEYS = ["wave", "freq", "to", "curve", "slide", "dur", "env", "vol", "pan", "duty", "arp", "vibrato", "tremolo", "filter", "color", "seed", "fm"];
+const SAMPLE_KEYS = ["root", "freq", "dur", "env", "vol", "pan", "start", "loop", "filter", "seed"];
+const WAVES = ["sine", "square", "saw", "triangle", "fm"];
+/** General MIDI drum notes for the built-in kit, and programs for the waves. */
+const GM_DRUMS: Record<string, number> = { kick: 36, snare: 38, hat: 42, openhat: 46, clap: 39, tom: 45 };
+const GM_PROGRAM: Record<string, number> = { square: 80, saw: 81, triangle: 78, sine: 79, fm: 4 };
+const MELODIC_CHANNELS = [0, 1, 2, 3, 4, 5, 6, 7, 8, 10, 11, 12, 13, 14, 15];
 const COLORS = ["white", "pink", "brown"];
 const KIND_OPTS: Record<SoundDef["kind"], string[]> = {
   sfx: ["vol", "dur", "loop", "fx", "base", "pitch"],
@@ -49,10 +55,20 @@ function checkKeys(what: string, obj: object, allowed: string[]): void {
 }
 
 function checkVoice(kind: Voice["__voice"], o: Record<string, unknown>, needPitch: boolean): VoiceOpts {
-  checkKeys(kind, o, VOICE_KEYS);
+  checkKeys(kind, o, kind === "sample" ? SAMPLE_KEYS : VOICE_KEYS);
   if (o.wave !== undefined && !WAVES.includes(o.wave as string)) throw new ChirpError(`wave must be ${WAVES.join(", ")}${didYouMean(String(o.wave), WAVES)}`);
   if (o.color !== undefined && !COLORS.includes(o.color as string)) throw new ChirpError(`color must be ${COLORS.join(", ")}${didYouMean(String(o.color), COLORS)}`);
   if (kind === "noise" && o.wave !== undefined) throw new ChirpError("noise has no wave; use color: white | pink | brown");
+  if (o.fm !== undefined) {
+    if (!isPlain(o.fm)) throw new ChirpError("fm: { ratio, index, decay } (modulator ratio, modulation index, index decay in seconds)");
+    checkKeys("fm", o.fm, ["ratio", "index", "decay"]);
+    for (const k of ["ratio", "index", "decay"]) if (o.fm[k] !== undefined && !(typeof o.fm[k] === "number" && o.fm[k] >= 0)) throw new ChirpError(`fm ${k} must be a number >= 0`);
+  }
+  if (kind === "sample") {
+    if (o.root !== undefined) freqOf(o.root, "root");
+    if (o.freq !== undefined) { if (o.root === undefined) throw new ChirpError("a sample with a freq needs its root (the note it was recorded at)"); freqOf(o.freq, "freq"); }
+    if (o.start !== undefined && !(typeof o.start === "number" && o.start >= 0)) throw new ChirpError("sample start must be >= 0 seconds");
+  }
   if (needPitch) freqOf(o.freq ?? 440, "freq");
   if (o.to !== undefined) freqOf(o.to, "to");
   if (o.dur !== undefined && !(typeof o.dur === "number" && o.dur > 0)) throw new ChirpError(`dur must be > 0 seconds`);
@@ -76,6 +92,11 @@ export class Project {
   readonly banks: BankDef[] = [];
   readonly files: string[] = [];
   includeHook?: (path: string) => void;
+  /** Set by a loader: resolves a path written in a sound file against that file. */
+  pathHook: (path: string) => string = (p) => p;
+  /** Set by a loader: reads and decodes a WAV by its resolved path. */
+  sampleHook?: (path: string) => SampleData;
+  private samples = new Map<string, SampleData>();
 
   private cache = new Map<string, Rendered>();
   private building = new Set<string>();
@@ -121,6 +142,26 @@ export class Project {
         return { __voice: kind, opts, step: { label: `${kind}(${[kind === "tone" ? opts.wave ?? "square" : opts.color ?? "white", pitch, fmt(opts.dur ?? 0.2) + "s"].filter(Boolean).join(" ")})`, loc } };
       });
     }
+    /** A decoded WAV by path written in the sound file, cached. */
+    const loadSample = (src: unknown): SampleData => {
+      if (typeof src !== "string" || !src) throw new ChirpError('sample("file.wav", { root, freq, dur, env, vol, pan, start, loop })');
+      const abs = this.pathHook(src);
+      let d = this.samples.get(abs);
+      if (!d) {
+        if (!this.sampleHook) throw new ChirpError("sample() is not available here (no sample loader)");
+        d = this.sampleHook(abs);
+        this.samples.set(abs, d);
+      }
+      return d;
+    };
+    env.sample = (src: unknown, o: unknown = {}): Voice => at("sample", (loc) => {
+      if (!isPlain(o)) throw new ChirpError("sample options must be an object");
+      const opts = checkVoice("sample", o, false);
+      const data = loadSample(src);
+      return { __voice: "sample", opts: { ...opts, src: src as string, data }, step: { label: `sample(${JSON.stringify((src as string).replace(/^.*[\\/]/, ""))}${opts.freq !== undefined ? " " + fmt(opts.freq) : ""})`, loc } };
+    });
+    env.chord = (name: unknown, octave?: unknown, inv?: unknown) => at("chord", () => chord(name, octave, inv));
+    env.scale = (root: unknown, mode?: unknown, octave?: unknown, octaves?: unknown) => at("scale", () => scale(root, mode, octave, octaves));
     env.play = (name: unknown, o: unknown = {}): Play => at("play", (loc) => {
       if (typeof name !== "string") throw new ChirpError('play("name", { pitch, vol, pan })');
       if (!isPlain(o)) throw new ChirpError("play options must be an object");
@@ -147,11 +188,20 @@ export class Project {
     env.song = (name: unknown, ...rest: unknown[]) => define("song", name, rest);
 
     env.inst = (name: unknown, make: unknown) => at("inst", (loc) => {
-      if (typeof name !== "string") throw new ChirpError('inst("name", { wave, env, ... }) or inst("name", (freq, dur, accent) => items)');
+      if (typeof name !== "string") throw new ChirpError('inst("name", { wave, env, ... }), inst("name", { sample: "file.wav", root: "C4" }) or inst("name", (freq, dur, accent) => items)');
       if (typeof make !== "function") {
-        if (!isPlain(make)) throw new ChirpError("an instrument is voice options or a function (freq, dur, accent) => items");
-        checkVoice("tone", make, false);
-        if (make.freq !== undefined || make.dur !== undefined) throw new ChirpError("an instrument's pitch and length come from the pattern; drop freq / dur");
+        if (!isPlain(make)) throw new ChirpError("an instrument is voice options, a sample, or a function (freq, dur, accent) => items");
+        if (make.sample !== undefined) {
+          // a sampled instrument: the file is pitched by the pattern's notes relative to its root
+          const { sample: src, ...rest } = make;
+          const opts = checkVoice("sample", rest, false);
+          if (opts.root === undefined) throw new ChirpError("a sampled instrument needs its root: the note the recording is at");
+          if (opts.freq !== undefined || opts.dur !== undefined) throw new ChirpError("an instrument's pitch and length come from the pattern; drop freq / dur");
+          make = { ...opts, src, data: loadSample(src) };
+        } else {
+          checkVoice("tone", make, false);
+          if (make.freq !== undefined || make.dur !== undefined) throw new ChirpError("an instrument's pitch and length come from the pattern; drop freq / dur");
+        }
       }
       this.insts.set(name, { name, make: make as InstMake, loc });
     });
@@ -163,7 +213,7 @@ export class Project {
       return { __track: true, inst, pattern, opts: o as Track["opts"], step: { label: `track("${inst}")`, loc } };
     });
 
-    for (const kind of ["delay", "reverb", "crush", "drive", "filter"] as const) {
+    for (const kind of ["delay", "reverb", "crush", "drive", "filter", "chorus", "limiter"] as const) {
       env[kind] = (o: unknown = {}): Fx => at(kind, () => {
         if (!isPlain(o)) throw new ChirpError(`${kind}({ ... })`);
         checkFx(kind, o);
@@ -253,7 +303,7 @@ export class Project {
 
     // Length: fixed for loops / songs, otherwise until the last voice ends.
     let end = 0;
-    for (const s of sched) end = Math.max(end, s.t + ("voice" in s ? voiceLength(s.voice.opts) : s.buf.L.length / SR));
+    for (const s of sched) end = Math.max(end, s.t + ("voice" in s ? voiceLength(s.voice.opts, s.voice.__voice, s.mod.pitch) : s.buf.L.length / SR));
     const tail = (o.fx ?? []).reduce((a, f) => a + fxTail(f), 0);
     const loop = !!o.loop || (def.kind === "song" && o.loop !== false);
     const fixed = def.kind === "song" ? songSteps * stepDur : o.dur;
@@ -273,7 +323,8 @@ export class Project {
         }
       }
     }
-    for (const f of o.fx ?? []) applyFx(f, buf);
+    // Effects in order; limiters wait until the loop has wrapped its tails, so they see the final peaks.
+    for (const f of o.fx ?? []) if (f.__fx !== "limiter") applyFx(f, buf, o.vol ?? 1);
 
     let outBuf = buf;
     if (loop) {
@@ -295,6 +346,7 @@ export class Project {
       const n = Math.min(outBuf.L.length, last + 1 + Math.round(0.01 * SR));
       if (n < outBuf.L.length) outBuf = { L: outBuf.L.slice(0, n), R: outBuf.R.slice(0, n) };
     }
+    for (const f of o.fx ?? []) if (f.__fx === "limiter") applyFx(f, outBuf, o.vol ?? 1);
     const vol = o.vol ?? 1;
     if (vol !== 1) for (const ch of [outBuf.L, outBuf.R]) for (let i = 0; i < ch.length; i++) ch[i] *= vol;
     return { name: def.name, kind: def.kind, buf: outBuf, dur: outBuf.L.length / SR, loop, layers };
@@ -339,11 +391,46 @@ export class Project {
         freqs.forEach((f, ci) => {
           const id = `${path}:${s}:${ci}`;
           if (typeof inst === "function") this.collect(inst(f, dur, e.accent), at, tmod, def, id, out, stepDur, songSteps);
-          else out.push({ t: at, voice: { __voice: "tone", opts: { ...inst, freq: f, dur, vol: (inst.vol ?? 1) * (e.accent ? 1.3 : 1) }, step: tr.step }, seed: hash(`${def.name}|${id}`), mod: tmod });
+          else out.push({ t: at, voice: { __voice: inst.src ? "sample" : "tone", opts: { ...inst, freq: f, dur, vol: (inst.vol ?? 1) * (e.accent ? 1.3 : 1) }, step: tr.step }, seed: hash(`${def.name}|${id}`), mod: tmod });
         });
       }
     }
   }
+}
+
+/** A song's tracks as MIDI notes: every track() in the song (inside at() and lists too), repeated over the song's length. */
+export function midiTracks(p: Project, name: string): { tracks: MidiTrack[]; bpm: number; steps: number } {
+  const def = p.sounds.get(name);
+  if (!def || def.kind !== "song") throw new ChirpError(`'${name}' is not a song`);
+  const bpm = def.opts.bpm ?? 120, steps = def.opts.steps ?? 4, stepDur = 60 / bpm / steps;
+  const found: { tr: Track; offset: number }[] = [];
+  const scan = (it: unknown, t: number) => {
+    if (Array.isArray(it)) it.forEach((v) => scan(v, t));
+    else if (isTrack(it)) found.push({ tr: it, offset: t });
+    else if (isAt(it)) it.items.forEach((v) => scan(v, t + it.__at));
+  };
+  def.items.forEach((it) => scan(it, 0));
+  const songSteps = def.opts.bars ? def.opts.bars * 4 * steps : Math.max(0, ...found.map((f) => parsePattern(f.tr.pattern).steps));
+  const tracks: MidiTrack[] = [];
+  let melodic = 0;
+  for (const { tr, offset } of found) {
+    const inst = p.insts.get(tr.inst)?.make, drum = GM_DRUMS[tr.inst];
+    const isDrum = !inst && drum !== undefined;
+    const channel = isDrum ? 9 : MELODIC_CHANNELS[melodic++ % MELODIC_CHANNELS.length];
+    const program = isDrum ? 0 : typeof inst === "object" && inst ? (inst.src ? 0 : GM_PROGRAM[inst.wave ?? "square"] ?? 80) : 80;
+    const { events, steps: patSteps } = parsePattern(tr.pattern);
+    const tp = tr.opts.transpose ?? 0, gate = tr.opts.gate ?? 0.85, base = offset / stepDur;
+    const notes: MidiTrack["notes"] = [];
+    for (let rep = 0; rep * patSteps < songSteps; rep++)
+      for (const e of events) {
+        const s = rep * patSteps + e.step;
+        if (s >= songSteps) break;
+        const keys = e.freqs.length ? e.freqs.map((f) => midiKey(f) + tp) : [drum ?? 60];
+        for (const key of keys) notes.push({ step: base + s, len: e.len * gate, key, vel: e.accent ? 120 : 100 });
+      }
+    tracks.push({ name: tr.inst, channel, program, notes });
+  }
+  return { tracks, bpm, steps };
 }
 
 function stepOf(item: unknown, def: SoundDef): Step {

@@ -76,7 +76,7 @@ sfx("rain", { dur: 2, loop: true }, noise({ color: "pink", dur: 2.2, env: [0.5, 
 });
 
 test("errors name the location and suggest fixes", () => {
-  throwsMsg(() => loadSource(`sfx("a",\n  tone({ wave: "squre" }))`), /^sound\.cx\.js:2:3: tone: wave must be sine, square, saw, triangle \(did you mean 'square'\?\)/);
+  throwsMsg(() => loadSource(`sfx("a",\n  tone({ wave: "squre" }))`), /^sound\.cx\.js:2:3: tone: wave must be sine, square, saw, triangle, fm \(did you mean 'square'\?\)/);
   throwsMsg(() => loadSource(`sfx("a", tone({ freq: "H4" }))`), /'H4' is not a note/);
   throwsMsg(() => loadSource(`sfx("a", { loop: true }, tone({}))`), /a looping sfx needs a fixed \{ dur \}/);
   const p = loadSource(`song("s", track("leed", "C4"))\ninst("lead", { wave: "square" })`);

@@ -38,6 +38,7 @@ Non-looping sounds trim their inaudible tail (below about -66 dBFS).
 |---|---|
 | `tone({ ... })` | Oscillator voice. |
 | `noise({ ... })` | Noise voice. |
+| `sample("file.wav", { ... })` | A recorded sound (WAV: PCM 8/16/24/32-bit or float, mono or stereo, any rate; path relative to the sound file). Options: `root` (the note it was recorded at) + `freq` to repitch it (`freq / root` changes the speed), `start` (seconds into the file), `dur` (default: the rest of the file), `loop` (repeat for `dur`), `env` (default `[0, 0, 1, 0.005]`), `vol`, `pan`, `filter`. Voice, foley, found sounds, drum hits. |
 | `at(t, ...items)` | Shift items by `t` seconds. |
 | `play(name, { pitch, vol, pan })` | Another sound (with its own effects) placed here. |
 | `track(inst, pattern, { vol, pan, transpose, gate })` | Songs only. |
@@ -47,7 +48,8 @@ Non-looping sounds trim their inaudible tail (below about -66 dBFS).
 
 | Option | Meaning |
 |---|---|
-| `wave` | `sine`, `square` (default), `saw`, `triangle` (tones). Square and saw are band-limited. |
+| `wave` | `sine`, `square` (default), `saw`, `triangle`, `fm` (tones). Square and saw are band-limited. |
+| `fm` | With `wave: "fm"`: `{ ratio: 2, index: 2, decay: 0 }`. A sine modulator at `ratio` × the pitch pushes the carrier's phase by `index`; `decay` (seconds) lets the index fade so the note starts bright and mellows (bells: ratio 3.5, index 4, decay 0.4; electric piano: ratio 1, index 2, decay 0.3; brass: ratio 1, index 3; basses: ratio 0.5). |
 | `color` | `white` (default), `pink`, `brown` (noise). |
 | `freq` | Start pitch (tones, default 440). On noise: sample-and-hold rate, giving crunchy chip noise. |
 | `to`, `slide`, `curve` | Slide to `to` over `slide` seconds (default: the gate); `curve: "exp"` (default) or `"lin"`. |
@@ -70,6 +72,8 @@ Non-looping sounds trim their inaudible tail (below about -66 dBFS).
 | `crush({ ... })` | `bits` 8, `rate` 11025 |
 | `drive({ ... })` | `amount` 2 (tanh saturation) |
 | `filter({ ... })` | `type`, `cutoff` or `from` + `to` (sweep over the sound), `q` |
+| `chorus({ ... })` | `rate` 0.8 Hz, `depth` 0.004 s, `mix` 0.5, `voices` 2: modulated delays, the right side offset, for width and ensemble detune (pads, strings, leads) |
+| `limiter({ ... })` | `ceiling` 0.95, `release` 0.05 s: a peak limiter that keeps the final output (after `vol`, after a loop's tails wrap onto its start) under the ceiling, so dense mixes never clip. It always runs last, wherever it sits in the list. |
 
 ## Patterns
 
@@ -88,6 +92,21 @@ One token per step, separated by spaces:
 Each track repeats its pattern until the song ends. Built-in drum instruments: `kick`, `snare`,
 `hat`, `openhat`, `clap`, `tom`. Patterns are strings, so arrangements are JS: `[A, A, B, A].join(" | ")`.
 
+Instruments can be samples: `inst("vox", { sample: "ah.wav", root: "C4", env: [0.01, 0.1, 0.8, 0.2] })`
+plays the recording repitched to every note of the pattern (the same options as `sample()`).
+
+### Chords and scales
+
+| Call | Gives |
+|---|---|
+| `chord("Am7", octave = 4, inversion = 0)` | A pattern token: `"A4+C5+E5+G5"`. Qualities: major (none), `m`, `dim`, `aug`, `5`, `sus2`, `sus4`, `6`, `m6`, `7`, `m7`, `maj7`, `mmaj7`, `dim7`, `m7b5`, `9`, `m9`, `maj9`, `add9`, `madd9`, `11`, `13`. Inversions lift the lowest notes an octave. |
+| `scale("C", "minor", octave = 4, octaves = 1)` | Note names, one octave plus the octave note: `["C4", "D4", "D#4", ...]`. Modes: `major minor dorian phrygian lydian mixolydian locrian harmonicMinor melodicMinor pentatonic minorPentatonic blues wholeTone chromatic japanese egyptian`. Index it for melodies: `const S = scale("A", "minorPentatonic", 4); track("lead", [0, 2, 4, 2].map((i) => S[i]).join(" "))`. |
+
+```js
+const prog = ["Am", "F", "C", "G"].map((c) => chord(c, 3) + " - - - - - - -")   // one chord per half bar
+song("verse", { bpm: 96, bars: 4 }, track("pad", prog.join(" | ")), track("bass", prog.map((p) => p.split("+")[0]).join(" | ")))
+```
+
 ## Output and commands
 
 `chirp build file.cx.js [--out DIR] [--only a,b] [--ogg] [--no-preview]`
@@ -95,6 +114,7 @@ Each track repeats its pattern until the song ends. Built-in drum instruments: `
 | Path | Content |
 |---|---|
 | `out/sfx/<name>.wav` / `out/music/<name>.wav` | 16-bit 44.1 kHz stereo. `--ogg` adds Vorbis `.ogg` (needs ffmpeg). |
+| `out/music/<name>.mid` | Every song as a standard MIDI file: one track per `track()`, tempo, notes with accents as velocity, the built-in drums as General MIDI percussion on channel 10, a GM program per wave (square / saw / triangle / sine leads, FM as electric piano). Open it in a DAW to arrange the composition with real instruments. |
 | `out/<bank>.wav` + `.json` | Audio sprite: `{ src, sprite: { name: [startMs, durMs] \| [startMs, durMs, true] } }` (Howler.js format). |
 | `out/_preview/<name>.png` | Waveform + log-frequency spectrogram with time and Hz axes. |
 

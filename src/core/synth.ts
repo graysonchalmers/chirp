@@ -54,9 +54,51 @@ export function envAt(env: Env, gate: number, t: number): number {
 
 export const DEFAULT_ENV: Env = [0.005, 0.05, 0.7, 0.08];
 
-/** Length in seconds a voice occupies (gate + release). */
-export function voiceLength(o: VoiceOpts): number {
+/** Length in seconds a voice occupies (gate + release). Samples default to their own length at the asked pitch. */
+export function voiceLength(o: VoiceOpts, kind: "tone" | "noise" | "sample" = "tone", pitch = 1): number {
+  if (kind === "sample") return sampleGate(o, pitch) + (o.env ?? SAMPLE_ENV)[3];
   return (o.dur ?? 0.2) + (o.env ?? DEFAULT_ENV)[3];
+}
+
+export const SAMPLE_ENV: Env = [0, 0, 1, 0.005];
+
+/** Playback rate of a sample: its pitch over its root (1 = as recorded), times the modulation. */
+export function sampleRate(o: VoiceOpts, pitch: number): number {
+  const root = o.root === undefined ? undefined : freqOf(o.root, "root");
+  const f = o.freq === undefined ? undefined : freqOf(o.freq, "freq");
+  return (root !== undefined && f !== undefined ? f / root : 1) * pitch;
+}
+
+/** Gate of a sample voice: `dur`, or the rest of the sample from `start` at its playback rate. */
+export function sampleGate(o: VoiceOpts, pitch: number): number {
+  if (o.dur !== undefined) return o.dur;
+  const n = o.data?.L.length ?? 0, rate = sampleRate(o, pitch);
+  return Math.max(0, (n / SR - (o.start ?? 0)) / rate);
+}
+
+/** Render a sample voice (decoded data at chirp's rate) into `out`: linear interpolation at the playback rate. */
+function renderSample(o: VoiceOpts, out: Stereo, start: number, mod: Mod): void {
+  const d = o.data;
+  if (!d || !d.L.length) throw new ChirpError("sample has no data (was it loaded?)");
+  const rate = sampleRate(o, mod.pitch), gate = sampleGate(o, mod.pitch), env = o.env ?? SAMPLE_ENV;
+  const len = Math.ceil((gate + env[3]) * SR), from = (o.start ?? 0) * SR, n = d.L.length;
+  const vol = (o.vol ?? 1) * mod.vol, pan = Math.max(-1, Math.min(1, (o.pan ?? 0) + mod.pan));
+  const gl = Math.cos(((pan + 1) * Math.PI) / 4), gr = Math.sin(((pan + 1) * Math.PI) / 4);
+  let filt: Biquad | undefined;
+  if (o.filter) { filt = new Biquad(); filt.set(o.filter.type ?? "lp", freqOf(o.filter.cutoff ?? o.filter.from ?? 2000, "filter cutoff"), o.filter.q ?? 0.9); }
+  for (let i = 0; i < len; i++) {
+    const idx = start + i;
+    if (idx >= out.L.length) break;
+    let p = from + i * rate;
+    if (o.loop) p = from + (((p - from) % Math.max(1, n - from)) + (n - from)) % Math.max(1, n - from);
+    else if (p >= n - 1) break;
+    const j = Math.floor(p), f = p - j, k = Math.min(n - 1, j + 1);
+    let l = d.L[j] + (d.L[k] - d.L[j]) * f, r = d.R[j] + (d.R[k] - d.R[j]) * f;
+    if (filt) { l = filt.run(l); r = l; }
+    const a = envAt(env, gate, i / SR) * vol;
+    out.L[idx] += l * a * gl;
+    out.R[idx] += r * a * gr;
+  }
 }
 
 export interface Mod {
@@ -67,7 +109,8 @@ export interface Mod {
 }
 
 /** Render one voice into `out` starting at sample `start`. */
-export function renderVoice(kind: "tone" | "noise", o: VoiceOpts, seed: number, out: Stereo, start: number, mod: Mod): void {
+export function renderVoice(kind: "tone" | "noise" | "sample", o: VoiceOpts, seed: number, out: Stereo, start: number, mod: Mod): void {
+  if (kind === "sample") return renderSample(o, out, start, mod);
   const gate = o.dur ?? 0.2;
   const env = o.env ?? DEFAULT_ENV;
   const len = Math.ceil(voiceLength(o) * SR);
@@ -93,7 +136,8 @@ export function renderVoice(kind: "tone" | "noise", o: VoiceOpts, seed: number, 
     filt.set(fType, fFrom, fq);
   }
 
-  let ph = 0, hold = 0, holdT = 1, b0 = 0, b1 = 0, b2 = 0, b3 = 0, b4 = 0, b5 = 0, b6 = 0, brown = 0;
+  const fmRatio = o.fm?.ratio ?? 2, fmIndex = o.fm?.index ?? 2, fmDecay = o.fm?.decay ?? 0;
+  let ph = 0, phm = 0, hold = 0, holdT = 1, b0 = 0, b1 = 0, b2 = 0, b3 = 0, b4 = 0, b5 = 0, b6 = 0, brown = 0;
   for (let i = 0; i < len; i++) {
     const idx = start + i;
     if (idx >= out.L.length) break;
@@ -113,6 +157,15 @@ export function renderVoice(kind: "tone" | "noise", o: VoiceOpts, seed: number, 
       ph -= Math.floor(ph);
       switch (o.wave ?? "square") {
         case "sine": x = Math.sin(2 * Math.PI * ph); break;
+        case "fm": {
+          // two-operator FM: a sine carrier whose phase is pushed by a sine modulator at ratio × f;
+          // the index (how far it is pushed) can decay, so bells and electric pianos start bright
+          phm += (f * fmRatio) / SR;
+          phm -= Math.floor(phm);
+          const idx = fmDecay > 0 ? fmIndex * Math.exp(-t / fmDecay) : fmIndex;
+          x = Math.sin(2 * Math.PI * ph + idx * Math.sin(2 * Math.PI * phm));
+          break;
+        }
         case "saw": x = 2 * ph - 1 - blep(ph, dt); break;
         case "triangle": x = 1 - 4 * Math.abs(ph - 0.5); break;
         default: {

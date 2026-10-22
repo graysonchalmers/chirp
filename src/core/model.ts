@@ -18,9 +18,23 @@ export interface FilterOpts {
   q?: number;
 }
 
+/** A decoded sample (the loader fills it in): stereo floats at chirp's sample rate. */
+export interface SampleData {
+  L: Float32Array;
+  R: Float32Array;
+}
+
 export interface VoiceOpts {
-  /** sine, square, saw, triangle; noise voices use `color`. */
-  wave?: "sine" | "square" | "saw" | "triangle";
+  /** sine, square, saw, triangle, fm; noise voices use `color`. */
+  wave?: "sine" | "square" | "saw" | "triangle" | "fm";
+  /** FM (wave "fm"): modulator frequency as a multiple of the carrier, modulation index, and how fast the index decays (seconds; 0 = constant). */
+  fm?: { ratio?: number; index?: number; decay?: number };
+  /** Samples: the file as written, the note it is pitched at (freq then plays it at freq / root), where to start (s), and whether to loop for `dur`. */
+  src?: string;
+  root?: number | string;
+  start?: number;
+  loop?: boolean;
+  data?: SampleData;
   /** Start pitch (Hz or note). Noise: sample-and-hold rate for crunchy, pitched noise. */
   freq?: number | string;
   /** End pitch for a slide. */
@@ -47,7 +61,7 @@ export interface VoiceOpts {
 }
 
 export interface Voice {
-  __voice: "tone" | "noise";
+  __voice: "tone" | "noise" | "sample";
   opts: VoiceOpts;
   step: Step;
 }
@@ -68,7 +82,7 @@ export interface At {
 }
 
 export interface Fx {
-  __fx: "delay" | "reverb" | "crush" | "drive" | "filter";
+  __fx: "delay" | "reverb" | "crush" | "drive" | "filter" | "chorus" | "limiter";
   opts: Record<string, unknown>;
 }
 
@@ -111,7 +125,7 @@ export interface SoundDef {
   loc?: string;
 }
 
-/** An instrument: voice options (pitched by the note) or a function of note -> items. */
+/** An instrument: voice options (pitched by the note), a sample (`src` + `root`, played at the note), or a function of note -> items. */
 export type InstMake = VoiceOpts | ((freq: number, dur: number, accent: boolean) => Item);
 
 export interface InstDef {

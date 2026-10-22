@@ -10,6 +10,8 @@ export const FX_OPTS: Record<Fx["__fx"], string[]> = {
   crush: ["bits", "rate"],
   drive: ["amount"],
   filter: ["type", "cutoff", "from", "to", "q"],
+  chorus: ["rate", "depth", "mix", "voices"],
+  limiter: ["ceiling", "release"],
 };
 
 export function checkFx(kind: Fx["__fx"], o: Record<string, unknown>): void {
@@ -25,10 +27,12 @@ export function fxTail(fx: Fx): number {
     return Math.min(4, num(fx.opts, "time", 0.25) * Math.ceil(Math.log(0.001) / Math.log(Math.max(fb, 0.01))));
   }
   if (fx.__fx === "reverb") return 0.5 + 2.5 * num(fx.opts, "size", 0.6);
+  if (fx.__fx === "chorus") return 0.05;
   return 0;
 }
 
-export function applyFx(fx: Fx, b: Stereo): void {
+/** Apply an effect in place. `vol` is the sound's master volume applied after the chain, so a limiter's ceiling can mean the final peak. */
+export function applyFx(fx: Fx, b: Stereo, vol = 1): void {
   const o = fx.opts, n = b.L.length;
   switch (fx.__fx) {
     case "delay": {
@@ -101,6 +105,43 @@ export function applyFx(fx: Fx, b: Stereo): void {
           ch[i] = f.run(ch[i]);
         }
       }
+      return;
+    }
+    case "chorus": {
+      // Modulated short delays mixed in, each voice at its own LFO phase, the right side offset,
+      // so a plain tone turns into a wide, slightly detuned ensemble.
+      const rate = num(o, "rate", 0.8), depth = num(o, "depth", 0.004), mix = num(o, "mix", 0.5), voices = Math.max(1, Math.min(4, Math.round(num(o, "voices", 2))));
+      const base = Math.round(0.02 * SR), maxD = base + Math.ceil(depth * SR) + 2;
+      const dry = { L: b.L.slice(), R: b.R.slice() };
+      for (const [ch, src, side] of [[b.L, dry.L, 0], [b.R, dry.R, 1]] as const) {
+        for (let i = 0; i < n; i++) {
+          let wet = 0;
+          for (let v = 0; v < voices; v++) {
+            const phase = (v / voices + side * 0.25) * 2 * Math.PI;
+            const d = base + (0.5 + 0.5 * Math.sin(2 * Math.PI * rate * (i / SR) + phase)) * depth * SR;
+            const p = i - d;
+            if (p < 0 || p >= n - 1 || d > maxD) continue;
+            const j = Math.floor(p), f = p - j;
+            wet += src[j] + (src[j + 1] - src[j]) * f;
+          }
+          ch[i] = src[i] * (1 - mix * 0.5) + (wet / voices) * mix;
+        }
+      }
+      return;
+    }
+    case "limiter": {
+      // A peak limiter: instant gain reduction when the signal would pass the ceiling, released
+      // smoothly, so loud mixes keep their shape and never clip.
+      const ceil = Math.max(0.05, Math.min(1, num(o, "ceiling", 0.95))) / Math.max(1e-6, vol), rel = Math.max(0.001, num(o, "release", 0.05));
+      const k = Math.exp(-1 / (rel * SR));
+      let g = 1;
+      for (let i = 0; i < n; i++) {
+        const peak = Math.max(Math.abs(b.L[i]), Math.abs(b.R[i]));
+        const want = peak > ceil ? ceil / peak : 1;
+        g = want < g ? want : want + (g - want) * k;
+        b.L[i] *= g; b.R[i] *= g;
+      }
+      return;
     }
   }
 }

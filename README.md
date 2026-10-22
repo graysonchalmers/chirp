@@ -105,11 +105,15 @@ pitch: B5 (988Hz -16dB) @0s → E6 (1318Hz -15dB) @0.05s
 
 ## Features
 
-- **Voices:** band-limited square (with duty), saw, triangle, sine, white/pink/brown noise, chip
-  sample-and-hold noise; ADSR envelopes, pitch slides, arpeggios, vibrato, tremolo, sweeping filters.
-- **Effects:** delay (with ping-pong), Freeverb-style reverb, bitcrush, drive, filter sweeps.
-- **Music:** instruments (voice options or functions), built-in drum kit, tracker-style patterns
-  with chords, holds, accents and swing. Songs loop seamlessly by default.
+- **Voices:** band-limited square (with duty), saw, triangle, sine, two-operator FM (bells, electric
+  pianos, brass), white/pink/brown noise, chip sample-and-hold noise, and `sample()` for recorded WAVs
+  (voice, foley, drum hits) repitched by note; ADSR envelopes, pitch slides, arpeggios, vibrato,
+  tremolo, sweeping filters.
+- **Effects:** delay (with ping-pong), Freeverb-style reverb, bitcrush, drive, filter sweeps, chorus,
+  and a peak limiter for mixes that never clip.
+- **Music:** instruments (voice options, samples or functions), built-in drum kit, tracker-style patterns
+  with chords, holds, accents and swing, `chord("Am7")` / `scale("D", "dorian")` helpers for harmony.
+  Songs loop seamlessly by default and also export as MIDI for a DAW.
 - **Reuse:** variants (`base` + `pitch`), `play()` to layer sounds, `at()` for timing, JS for everything else.
 - **Game output:** WAV, OGG (`--ogg`, via ffmpeg), audio-sprite banks + Howler JSON. Silent tails are
   trimmed and loop tails wrap onto the start.

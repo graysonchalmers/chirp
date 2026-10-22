@@ -60,9 +60,16 @@ bank("game_sfx", ["coin*", "jump", "explosion"])
 - **Voices**: `tone({ wave, freq, to, slide, curve, dur, env, vol, pan, duty, arp, vibrato, tremolo, filter })`
   and `noise({ color, freq, dur, env, filter, ... })`. Pitches are Hz or notes (`"A4"`, `"C#5"`, `"Eb3"`).
   `env: [attack, decay, sustain, release]`; `dur` is the gate, the release rings after it.
+  `wave: "fm", fm: { ratio: 3.5, index: 4, decay: 0.4 }` gives bells, electric pianos, brass and metal.
+- **Samples**: `sample("hit.wav", { root: "C4", freq: "G4", start, dur, loop })` plays a recording
+  (voice, foley, drum hits), repitched by `freq / root`; `inst("vox", { sample: "ah.wav", root: "C4" })`
+  makes it an instrument the patterns play. Paths are relative to the sound file.
+- **Harmony**: `chord("Am7", 3)` → `"A3+C4+E4+G4"` as a pattern token; `scale("D", "dorian", 4)` → note
+  names to index for melodies. Progressions are JS: `["Am", "F", "C", "G"].map((c) => chord(c, 3) + " - - -")`.
 - **Time**: items start together; `at(seconds, ...items)` shifts them. `play("other", { pitch, vol, pan })`
   layers another sound.
-- **Effects** (sound-level `fx: [...]`): `delay reverb crush drive filter`.
+- **Effects** (sound-level `fx: [...]`): `delay reverb crush drive filter chorus limiter`. End a dense
+  song's chain with `limiter({ ceiling: 0.95 })` and it never clips.
 - **Music**: `inst(name, voiceOpts)` or `inst(name, (freq, dur, accent) => items)`; drums built in:
   `kick snare hat openhat clap tom`. Patterns: one token per step (`steps` per beat, default 4):
   note, chord `C4+E4+G4`, `x` hit, `.` rest, `-` hold, `!` accent, `|` bar (ignored). Patterns repeat to
@@ -70,7 +77,8 @@ bank("game_sfx", ["coin*", "jump", "explosion"])
 - **Loops**: songs loop by default; `sfx(..., { dur, loop: true })` for ambience. Tails wrap onto
   the start, so the seam is inaudible. Non-loops trim their silent tail.
 - **Game output**: `out/sfx/*.wav`, `out/music/*.wav`, `bank()` → one WAV + `{ src, sprite: { name: [ms, ms] } }`
-  JSON for Howler.js / Phaser audio sprites.
+  JSON for Howler.js / Phaser audio sprites. Songs also write `out/music/*.mid` (tracks, drums on
+  channel 10) for a DAW.
 
 Full API: [reference.md](reference.md).
 

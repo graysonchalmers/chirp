@@ -5,7 +5,8 @@ import { dirname, join } from "node:path";
 import { analyze, statsText } from "../core/analyze.ts";
 import { wav } from "../core/encode.ts";
 import { ChirpError, didYouMean, wrap } from "../core/errors.ts";
-import type { Project } from "../core/project.ts";
+import { midi } from "../core/midi.ts";
+import { type Project, midiTracks } from "../core/project.ts";
 import { stereo } from "../core/synth.ts";
 import { SR } from "../core/util.ts";
 import { previewPng } from "./preview.ts";
@@ -47,9 +48,15 @@ export function writeOutputs(p: Project, out: string, opts: OutputOptions = {}):
       const path = join(out, r.kind === "song" ? "music" : "sfx", name + ".wav");
       write(path, wav(r.buf));
       if (opts.ogg) toOgg(path);
+      // songs also go out as MIDI, so they can be arranged with real instruments in a DAW
+      let extra = "";
+      if (r.kind === "song") {
+        const m = midiTracks(p, name);
+        if (m.tracks.length) { write(join(out, "music", name + ".mid"), midi(m.tracks, m.bpm, m.steps, name)); extra = `  + .mid (${m.tracks.length} tracks)`; }
+      }
       const s = analyze(r.buf);
       if (opts.preview !== false) write(join(out, "_preview", name + ".png"), previewPng(name, r.buf, s, r.loop));
-      lines.push(statsText(`${r.kind} ${name}`, s).split("\n")[0]);
+      lines.push(statsText(`${r.kind} ${name}`, s).split("\n")[0] + extra);
     } catch (e) {
       errors.push(wrap(e));
     }
